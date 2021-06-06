@@ -4,10 +4,13 @@ import torch.nn.functional as F
 
 
 class MLP(nn.Module):
-    """Multi Layer Perceptron Model"""
+    """
+    Multi Layer Perceptron Model
+    """
 
     def __init__(self, state_size, action_size, hidden=[128,64], seed=None):
-        """Initialize parameters and build model.
+        """
+        Initialize parameters & build model
         
         Args:
             state_size (int): Dimension of each state
