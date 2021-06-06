@@ -61,7 +61,6 @@ class UnityEnv():
         if self.verbose:
             print('\nNumber of agents: {}'.format(len(self.agents)))
             print('Number of actions: {}'.format(self.action_size))
-            print('Valid actions: {}'.format(self.actions))
             print('States look like: {}'.format(self.state))
             print('States have length: {}\n'.format(self.state_size))
         
@@ -85,22 +84,22 @@ class UnityEnv():
         # Set environment variables
         self.agents = self.env_info.agents
         self.action_size = self.brain.vector_action_space_size
-        self.state = self.env_info.vector_observations
+        
+        # Set state
+        if len(self.agents) > 1:
+            self.state = self.env_info.vector_observations 
+        else:
+            self.state = self.env_info.vector_observations[0]
         self.state_size = self.state.shape[1]
-
-        # Create list of allowable actions
-        self.actions = list(range(self.action_size))
-        self.actions.append(None)
 
         return self.state
 
     def step(self, action=None):
         """
-        Perform specified action in environment. If no action is specified then
-        sample & perform random action
+        Perform specified action in environment
 
         Args:
-            action (int): Action to be performed
+            action (int/float or List of int/float): Action to be performed
 
         Returns:
             Tuple containing (state, action, reward, next_state, done) 
@@ -112,17 +111,7 @@ class UnityEnv():
             done (bool): Is simulation complete
         
         """
-                
-        # Error check
-        if action not in self.actions:
-            raise ValueError('Invalid action specified. Valid options are: '
-                '{}'.format(self.actions)
-            )
-
-        # Sample random action if no action specified
-        if action is None:
-            action = self.rng.choice(self.action_size) # Can't pick None
-
+        
         # Get current state
         state = self.state
 
@@ -130,9 +119,14 @@ class UnityEnv():
         self.env_info = self.env.step(action)[self.brain_name]  
 
         # Get environment status
-        next_state = self.env_info.vector_observations[0]
-        self.reward = self.env_info.rewards[0]
-        self.done = self.env_info.local_done[0]
+        if len(self.agents) > 1:
+            next_state = self.env_info.vector_observations
+            self.reward = self.env_info.rewards
+            self.done = self.env_info.local_done
+        else:
+            next_state = self.env_info.vector_observations[0]
+            self.reward = self.env_info.rewards[0]
+            self.done = self.env_info.local_done[0]
 
         # Set current state
         self.state = next_state
