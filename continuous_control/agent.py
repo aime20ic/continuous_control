@@ -153,7 +153,7 @@ class PPO(Agent):
 
         # PPO specific
         self.policy = MLP(env.state_size, 2*env.action_size, 
-            hidden=[128, 64], seed=seed) 
+            hidden=[128, 64], seed=seed).to(self.device)
 
         return
 
@@ -232,33 +232,65 @@ class PPO(Agent):
 
         return torch.mean(clipped_surrogate + beta * entropy)
 
-    def _get_action(self, distributions):
+    def _get_actions(self, distributions, min_val=-1.0, max_val=1.0):
         """
         Sample actions from specified distribution (mean & std)
 
         Args: 
-            distributions (list of float): Mean & standard deviation for distribution
+            distributions (list of float): Mean & standard deviation for 
+                                           distribution per agent in env
+            min_val (float): Minimum action value
+            max_val (float): Maximum action value
 
         Returns:
             Samples from distributions
 
         """ 
-        return [self.rng.normal(m,s) for m,s in distributions]
+        samples = []
 
-    def _collect_trajectories(env, policy, tmax=200, n_rand=5):
+        # Sample from distribution
+        for agent in distributions:
+            agent_samples = []
+
+            for mean, std in agent.reshape(len(agent)//2, 2):
+
+                # Std must be positive
+                if std < 0:
+                    std = 0.0
+
+                # Get sample
+                sample = self.rng.normal(mean, std)
+
+                # Limit action to valid range
+                if sample < min_val:
+                    sample = min_val
+                if sample > max_val:
+                    sample = max_val
+
+                # Append to list
+                agent_samples.append(sample)
+            
+            # Append to sample list
+            samples.append(agent_samples)
+
+        return samples
+
+    def _collect_trajectories(self, tmax=200, n_rand=5):
         """
         Collect trajectories from specified env after taking n_rand actions. 
         Modified from provided PPO Pong Utils 
 
         Args:
-            env (UnityEnv): Simulation environment
-            policy (Torch nn.Module): Torch neural network
             tmax (int): Maximum number of time steps to collect
             n_rand (int):
+        
+        Returns:
+            List of collected probabilities, states, actions, & rewards
+
         """
 
         # Number of parallel instances
-        n = len(self.env.n_agents)
+        n = len(self.env.agents)
 
         # Initialize returning lists and start the game!
         state_list = []
@@ -267,51 +299,41 @@ class PPO(Agent):
         action_list = []
 
         # Reset env
-        env.reset()
+        self.env.reset()
         
         # Start all parallel agents
         # env.step([1]*n)
         
         # Perform n_rand random steps
         for _ in range(n_rand):
-            _, _, _, state, _ = env.step(self.rng.uniform(-1,1,(n,4)))
+            _, _, _, state, _ = self.env.step(self.rng.uniform(-1,1,(n,4)))
         
         for t in range(tmax):
 
-            # prepare the input
-            # preprocess_batch properly converts two frames into 
-            # shape (n, 2, 80, 80), the proper input for the policy
-            # this is required when building CNN with pytorch
-            # batch_input = preprocess_batch([fr1,fr2])
+            # Prepare input
             state = torch.from_numpy(state).float().to(self.device)
             
-            # probs will only be used as the pi_old
-            # no gradient propagation is needed
-            # so we move it to the cpu
-            # probs = policy(batch_input).squeeze().cpu().detach().numpy()
-            # action = np.where(np.random.rand(n) < probs, RIGHT, LEFT)
-            # probs = np.where(action==RIGHT, probs, 1.0-probs)
-            probs = policy(state).squeeze().cpu().detach().numpy()
+            # Probs will only be used as the pi_old. No gradient propagation is 
+            # needed, so we move it to the cpu
+            probs = self.policy(state).squeeze().cpu().detach().numpy()
 
             # Get actions from action probabilities (mean, std)
-            action = self.get_actions(np.split(probs,2))
+            action = self._get_actions(probs)
             
-            # Advance the game (0=no action)
-            # We take one action and skip game forward
-            # fr1, re1, is_done, _ = envs.step(action)
-            # fr2, re2, is_done, _ = envs.step([0]*n)
-            # reward = re1 + re2
-            _, _, reward, _, done = env.step(action)
+            # Advance game using determined actions
+            _, _, reward, next_state, done = self.env.step(action)
             
             # store the result
             state_list.append(state)
             reward_list.append(reward)
             prob_list.append(probs)
             action_list.append(action)
-            
-            # stop if any of the trajectories is done
-            # we want all the lists to be retangular
-            if done.any():
+
+            # Set state
+            state = next_state
+
+            # Stop if any of the trajectories are done
+            if any(done):
                 break
 
         # return pi_theta, states, actions, rewards, probability
