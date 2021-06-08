@@ -34,6 +34,7 @@ class UnityEnv():
         self.agents = None
         self.action_size = None
         self.state_size = None
+        self.step_count = 0
         self.rng = None
         self.rng_seed = None
         self.verbose = verbose
@@ -130,6 +131,9 @@ class UnityEnv():
 
         # Set current state
         self.state = next_state
+
+        # Increase step counter
+        self.step_count += 1
 
         return state, action, self.reward, next_state, self.done
 

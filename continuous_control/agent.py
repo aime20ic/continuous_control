@@ -3,10 +3,11 @@ import time
 import numpy as np
 
 import torch
+import torch.optim as optim
 
 from pathlib import Path
 
-from continuous_control.model import MLP
+from continuous_control.model import GaussianMLP
 
 
 class Agent():
@@ -43,10 +44,9 @@ class Agent():
         # Set agent training hyperparameters
         self.batch_size = kwargs.get('batch_size', 64)          # minibatch size
         self.gamma = kwargs.get('gamma', 0.99)                  # discount factor
-        self.lr = kwargs.get('lr', 5e-4)                        # learning rate 
-        self.device = torch.device(
-            "cuda:0" if torch.cuda.is_available() else "cpu"
-        )
+        self.lr = kwargs.get('lr', 1e-4)                        # learning rate 
+        self.optimizer = None
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
         # Set seed
         self.seed(seed)
@@ -151,9 +151,13 @@ class PPO(Agent):
         # Agent initialization
         super().__init__(env, seed, verbose, **kwargs)
 
-        # PPO specific
-        self.policy = MLP(env.state_size, 2*env.action_size, 
+        # Agent properties
+        self.epsilon = kwargs.get('epsilon', 0.1)
+        self.beta = kwargs.get('beta', 0.01)
+        self.sgd_epoch = kwargs.get('sgd_epoch', 4)
+        self.policy = GaussianMLP(env.state_size, env.action_size, 
             hidden=[128, 64], seed=seed).to(self.device)
+        self.optimizer = optim.Adam(self.policy.parameters(), lr=self.lr)
 
         return
 
@@ -162,29 +166,24 @@ class PPO(Agent):
         """
         pass
 
-    def _surrogate(policy, old_probs, states, actions, rewards, 
-            discount=0.995, epsilon=0.1, beta=0.01):
+    def _surrogate(self, old_probs, states, actions, rewards):
         """
         Clipped surrogate function for performing PPO. Modified from PPO lesson
         solution
 
         Args:
-            policy (Torch nn.Module): Torch neural network
-            old_probs (list): Action probabilities
+            old_probs (list): Action probabilities (mean & std)
             states (list): Trajectory states
             actions (list): Trajectory actions
             rewards (list): Trajectory rewards
-            discount (float): Reward discount factor
-            epsilon (float): Gradient clip factor
-            beta (float): Entropy scale factor
 
         Returns:
-            Policy gradient
+            Policy loss
 
         """
-    
+
         # Calculate discounted rewards for all envs wrt each time step
-        discount = discount**np.arange(len(rewards))
+        discount = self.gamma**np.arange(len(rewards))
         rewards = np.asarray(rewards) * discount[:,np.newaxis]
         
         # Calculate future rewards
@@ -196,93 +195,34 @@ class PPO(Agent):
         rewards_normalized = (rewards_future - mean[:,np.newaxis]) / std[:,np.newaxis]
         
         # Convert variables to tensors
-        old_probs = torch.tensor(old_probs, dtype=torch.float32, device=device)
-        actions = torch.tensor(actions, dtype=torch.int8, device=device)
+        old_probs = torch.tensor(old_probs, dtype=torch.float32, device=self.device)
+        actions = torch.tensor(actions, dtype=torch.int8, device=self.device)
         states = torch.stack(states)
-        rewards_normalized = torch.tensor(rewards_normalized, dtype=torch.float, device=device)
-        
-        # Convert states from tensor shape of 
-        # [tmax, n_parallel_env, 2, 80, 80] -> [tmax * n_parallel_env, 2, 80, 80]
-        policy_input = states.view(-1, *states.shape[-3:])
+        rewards_normalized = torch.tensor(rewards_normalized, dtype=torch.float, device=self.device)
         
         # Pass states to policy
-        new_probs = policy(policy_input).view(states.shape[:-3])
-        
-        # convert states to policy (or probability) wrt to action 
-        # new_probs = pong_utils.states_to_prob(policy, states)
-        new_probs = torch.where(actions == pong_utils.RIGHT, new_probs, 1.0-new_probs)
-        
+        policy_dict = self.policy(states)
+        new_probs = policy_dict['log_pi']
+        entropy = -policy_dict['entropy']
+            
         # Compute weights ratio
-        # with torch.no_grad():
         ratio = new_probs / old_probs
             
         # clipped function
-        clip = torch.clamp(ratio, 1-epsilon, 1+epsilon)
+        clip = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon)
         clipped_surrogate = torch.min(ratio*rewards_normalized, clip*rewards_normalized)
         
-        # include a regularization term
-        # this steers new_policy towards 0.5
-        # which prevents policy to become exactly 0 or 1
-        # this helps with exploration
-        # add in 1.e-10 to avoid log(0) which gives nan
-        entropy = -(
-            new_probs * torch.log(old_probs + 1.e-10) + 
-            (1.0 - new_probs) * torch.log(1.0 - old_probs + 1.e-10)
-        )
+        return torch.mean(clipped_surrogate + self.beta * entropy)
 
-        return torch.mean(clipped_surrogate + beta * entropy)
-
-    def _get_actions(self, distributions, min_val=-1.0, max_val=1.0):
-        """
-        Sample actions from specified distribution (mean & std)
-
-        Args: 
-            distributions (list of float): Mean & standard deviation for 
-                                           distribution per agent in env
-            min_val (float): Minimum action value
-            max_val (float): Maximum action value
-
-        Returns:
-            Samples from distributions
-
-        """ 
-        samples = []
-
-        # Sample from distribution
-        for agent in distributions:
-            agent_samples = []
-
-            for mean, std in agent.reshape(len(agent)//2, 2):
-
-                # Std must be positive
-                if std < 0:
-                    std = 0.0
-
-                # Get sample
-                sample = self.rng.normal(mean, std)
-
-                # Limit action to valid range
-                if sample < min_val:
-                    sample = min_val
-                if sample > max_val:
-                    sample = max_val
-
-                # Append to list
-                agent_samples.append(sample)
-            
-            # Append to sample list
-            samples.append(agent_samples)
-
-        return samples
-
-    def _collect_trajectories(self, tmax=200, n_rand=5):
+    def _collect_trajectories(self, tmax=200, n_rand=10):
         """
         Collect trajectories from specified env after taking n_rand actions. 
         Modified from provided PPO Pong Utils 
 
         Args:
             tmax (int): Maximum number of time steps to collect
-            n_rand (int):
+            n_rand (int): Number of random steps to perform before collecting 
+                          trajectories
         
         Returns:
             List of collected probabilities, states, actions, & rewards
@@ -301,9 +241,6 @@ class PPO(Agent):
         # Reset env
         self.env.reset()
         
-        # Start all parallel agents
-        # env.step([1]*n)
-        
         # Perform n_rand random steps
         for _ in range(n_rand):
             _, _, _, state, _ = self.env.step(self.rng.uniform(-1,1,(n,4)))
@@ -315,11 +252,10 @@ class PPO(Agent):
             
             # Probs will only be used as the pi_old. No gradient propagation is 
             # needed, so we move it to the cpu
-            probs = self.policy(state).squeeze().cpu().detach().numpy()
-
-            # Get actions from action probabilities (mean, std)
-            action = self._get_actions(probs)
-            
+            policy_dict = self.policy(state)
+            action = policy_dict['action'].squeeze().cpu().detach().numpy()
+            probs = policy_dict['log_pi'].squeeze().cpu().detach().numpy()
+                        
             # Advance game using determined actions
             _, _, reward, next_state, done = self.env.step(action)
             
@@ -338,3 +274,57 @@ class PPO(Agent):
 
         # return pi_theta, states, actions, rewards, probability
         return prob_list, state_list, action_list, reward_list
+
+    def train(self, n_episodes=300, tmax=100):
+        """
+        Train agent
+
+        Args:
+            n_episodes (int): Number of training episodes
+            tmax (int): Number of trajectories to collect
+
+        Returns:
+            None
+
+        """
+
+        # Keep track of progress
+        mean_rewards = []
+
+        # Iterate through episodes
+        for e in range(n_episodes):
+
+            # Collect trajectories
+            old_probs, states, actions, rewards = self._collect_trajectories(tmax=tmax)
+            
+            # Aggregate rewards
+            total_rewards = np.sum(rewards, axis=0)
+
+            # Gradient ascent step
+            for _ in range(self.sgd_epoch):
+                
+                # Get effective policy loss
+                L = -self._surrogate(old_probs, states, actions, rewards)
+
+                # Train / backprop
+                self.optimizer.zero_grad()
+                L.backward()
+                self.optimizer.step()
+                del L
+            
+            # Reduce clipping parameter as time goes on
+            self.epsilon*=.999
+            
+            # Reduce regulation term to reduces exploration in later runs
+            self.beta*=.995
+            
+            # Get average reward
+            mean_rewards.append(np.mean(total_rewards))
+            
+            # Display some progress every 20 iterations
+            if (e+1)%20 ==0 :
+                print("Episode: {0:d}, score: {1:f}".format(e+1,np.mean(total_rewards)))
+                print(total_rewards)
+            
+        return
+    
