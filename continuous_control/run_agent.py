@@ -182,7 +182,7 @@ def eval_agent(agents, env, eval_type, **kwargs):
             # Update all agents
             if eval_type == 'train':
                 for i, agent in enumerate(agents):
-                    agent.step(states[i], actions[i], rewards[i], next_states[i], dones[i])
+                    agent.step(states[i], actions[i], rewards[i], next_states[i], dones[i], t)
 
             # Update next state & score
             states = next_states
