@@ -180,7 +180,7 @@ class PPO(Agent):
 
         # Iterate through episodes
         for episode in range(n_episodes):
-
+            
             # Collect trajectories
             old_probs, states, actions, rewards = self._collect_trajectories(tmax=tmax)
             
@@ -188,19 +188,19 @@ class PPO(Agent):
             for _ in range(self.sgd_epoch):
                 
                 # Get effective policy loss
-                L = -self._surrogate(old_probs, states, actions, rewards)
+                loss = -self._surrogate(old_probs, states, actions, rewards)
 
                 # Train / backprop
                 self.optimizer.zero_grad()
-                L.backward()
+                loss.backward()
                 self.optimizer.step()
-                del L
+                del loss
             
             # Reduce clipping parameter as time goes on
-            self.epsilon*=.999
+            self.epsilon *= 0.999
             
             # Reduce regulation term to reduces exploration in later runs
-            self.beta*=.995
+            self.beta *= 0.995
             
             # Get average reward
             total_rewards = np.sum(rewards, axis=0)
@@ -234,12 +234,12 @@ class PPO(Agent):
                 self.write2path(window_summary, log)
 
                 # Terminal condition check (early stop / overfitting)
-                if scores_mean < best_avg_score:
-                    window_summary = ('\rEarly stop at {:d}/{:d} episodes!\rAverage Score: {:.2f} ± {:.2f}'
-                        '\tBest Average Score: {:.2f}').format(episode, n_episodes, scores_mean, scores_std, best_avg_score)
-                    print(window_summary)
-                    self.write2path(window_summary, log)
-                    break
+                # if scores_mean < best_avg_score:
+                #     window_summary = ('\rEarly stop at {:d}/{:d} episodes!\rAverage Score: {:.2f} ± {:.2f}'
+                #         '\tBest Average Score: {:.2f}').format(episode, n_episodes, scores_mean, scores_std, best_avg_score)
+                #     print(window_summary)
+                #     self.write2path(window_summary, log)
+                #     break
 
                 # Terminal condition check (hit goal)
                 if scores_mean - scores_std >= score_goal:
@@ -273,3 +273,17 @@ class PPO(Agent):
 
         return
     
+    def load(self, path):
+        """
+        Load weights specified in path into model
+
+        Args:
+            path (Path): Saved model weights to load
+
+        Returns:
+            None
+        
+        """
+        print('Loading model from {}'.format(path.name))
+        self.policy.load_state_dict(torch.load(path))
+        return

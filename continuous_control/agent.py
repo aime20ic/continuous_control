@@ -48,12 +48,12 @@ class Agent():
 
         # Set seed
         self.seed(seed)
-        
+
         return
 
     def load(self, path):
         """
-        Load weights specified in path into both local & target networks
+        Load weights specified in path into model
 
         Args:
             path (Path): Saved model weights to load
@@ -62,10 +62,7 @@ class Agent():
             None
         
         """
-        print('Loading model from {}'.format(path.name))
-        self.qnetwork_local.load_state_dict(torch.load(path))
-        self.qnetwork_target.load_state_dict(torch.load(path))
-        return
+        pass
     
     def act(self, state):
         """
