@@ -121,12 +121,12 @@ def plot_performance(scores, name, window_size):
 
     return
 
-def eval_agent(agents, env, eval_type, **kwargs):
+def eval_agent(agent, env, eval_type, **kwargs):
     """
     Train agent
 
     Args:
-        agents (list of Agent): DDPG Agents
+        agent (Agent): DDPG Agent
         env (UnityEnv): Unity simulation environment 
         eval_type (str): Training or testing agent
         n_episodes (int): Number of training episodes
@@ -136,7 +136,6 @@ def eval_agent(agents, env, eval_type, **kwargs):
         None
 
     """
-    n_agents = len(agents)                      # number of agents
     eval_options = ['train', 'test']            # evaluation options
 
     # Set score variables
@@ -167,29 +166,28 @@ def eval_agent(agents, env, eval_type, **kwargs):
     for episode in range(n_episodes):
 
         # Reset environment
+        score = 0
         states = env.reset(train=True)
-        score = np.zeros(n_agents)
         
         # Learn for max_t steps
         for t in range(max_t):
 
             # Get actions for all agents
-            actions = np.array([agent.act(states[i]) for i, agent in enumerate(agents)])
+            actions = np.array(agent.act(states))
 
             # Send actions for all agents
             _, _, rewards, next_states, dones = env.step(actions)
 
             # Update all agents
             if eval_type == 'train':
-                for i, agent in enumerate(agents):
-                    agent.step(states[i], actions[i], rewards[i], next_states[i], dones[i], t)
+                agent.step(states, actions, rewards, next_states, dones)
 
             # Update next state & score
             states = next_states
             score += rewards
 
             # Check terminal condition
-            if any(dones):
+            if dones:
                 break
         
         # Get average reward
@@ -213,8 +211,8 @@ def eval_agent(agents, env, eval_type, **kwargs):
             # Save best performing model (weights)
             if eval_type=='train' and scores_mean >= best_avg_score:
                 output.mkdir(parents=True, exist_ok=True)
-                torch.save(agents[0].actor_local.state_dict(), output / (prefix + '__best_model__actor.pth'))
-                torch.save(agents[0].critic_local.state_dict(), output / (prefix + '__best_model__critic.pth'))
+                torch.save(agent.actor_local.state_dict(), output / (prefix + '__best_model__actor.pth'))
+                torch.save(agent.critic_local.state_dict(), output / (prefix + '__best_model__critic.pth'))
                 best_avg_score = scores_mean
                 best_avg_score_std = scores_std
 
@@ -242,8 +240,8 @@ def eval_agent(agents, env, eval_type, **kwargs):
     # Save final model (weights)
     if eval_type == 'train': 
         output.mkdir(parents=True, exist_ok=True)
-        torch.save(agents[0].actor_local.state_dict(), output / (prefix + '__model__actor.pth'))
-        torch.save(agents[0].critic_local.state_dict(), output / (prefix + '__model__critic.pth'))
+        torch.save(agent.actor_local.state_dict(), output / (prefix + '__model__actor.pth'))
+        torch.save(agent.critic_local.state_dict(), output / (prefix + '__model__critic.pth'))
     
     # Plot training performance
     plot_performance(scores, output / (prefix + '__training.png'), window_size)
@@ -253,7 +251,7 @@ def eval_agent(agents, env, eval_type, **kwargs):
         'n_episodes': n_episodes,
         'eval_type': eval_type, 
         'max_t': max_t,
-        'agent_seed': agents[0].seed,
+        'agent_seed': agent.seed,
         'env_seed': env.rng_seed,
         'best_avg_score': best_avg_score,
         'best_avg_score_std': best_avg_score_std,
@@ -284,18 +282,18 @@ def main(args):
     agent_config = {'state_size': env.state_size, 
                     'action_size': env.action_size, 
                     'random_seed': args.seed}
-    agents = [Agent(**agent_config) for _ in range(len(env.agents))]
+    agent = Agent(**agent_config)
 
     # Reset agents
-    [agent.reset() for agent in agents]
+    agent.reset()
 
     # Load agents
-    if args.actor: [agent.load(args.actor, 'actor') for agent in agents]
-    if args.critic: [agent.load(args.critic, 'critic') for agent in agents]
+    if args.actor: agent.load(args.actor, 'actor')
+    if args.critic: agent.load(args.critic, 'critic')
 
     # Evaluate agent
     train_mode = 'test' if args.test else 'train'
-    eval_agent(agents, env, train_mode, **vars(args))
+    eval_agent(agent, env, train_mode, **vars(args))
 
     # Close env
     env.close()

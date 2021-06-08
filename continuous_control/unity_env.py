@@ -89,10 +89,11 @@ class UnityEnv():
         # Set state
         if len(self.agents) > 1:
             self.state = self.env_info.vector_observations 
+            self.state_size = self.state.shape[1]
         else:
             self.state = self.env_info.vector_observations[0]
-        self.state_size = self.state.shape[1]
-
+            self.state_size = len(self.state)
+        
         return self.state
 
     def step(self, action=None):

@@ -14,10 +14,9 @@ BUFFER_SIZE = int(1e6)  # replay buffer size
 BATCH_SIZE = 256        # minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
-LR_ACTOR = 1e-4         # learning rate of the actor 
-LR_CRITIC = 3e-4        # learning rate of the critic
+LR_ACTOR = 5e-4         # learning rate of the actor 
+LR_CRITIC = 5e-4        # learning rate of the critic
 WEIGHT_DECAY = 0.0      # L2 weight decay
-UPDATE_EVERY = 4        # Update frequency
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -49,23 +48,20 @@ class Agent():
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
 
         # Noise process
-        self.noise = OUNoise(action_size, random_seed)
+        self.noise = OUNoise(action_size, random_seed, sigma=0.1)
 
         # Replay memory
         self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, random_seed)
     
-    def step(self, state, action, reward, next_state, done, step):
+    def step(self, state, action, reward, next_state, done):
         """Save experience in replay memory, and use random sample from buffer to learn."""
         # Save experience / reward
         self.memory.add(state, action, reward, next_state, done)
 
-        # Update according to specified frequency
-        if step % UPDATE_EVERY == 0:
-
-            # Learn, if enough samples are available in memory
-            if len(self.memory) > BATCH_SIZE:
-                experiences = self.memory.sample()
-                self.learn(experiences, GAMMA)
+        # Learn, if enough samples are available in memory
+        if len(self.memory) > BATCH_SIZE:
+            experiences = self.memory.sample()
+            self.learn(experiences, GAMMA)
 
     def act(self, state, add_noise=True):
         """Returns actions for given state as per current policy."""
