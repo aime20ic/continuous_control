@@ -48,10 +48,7 @@ class Agent():
 
         # Set seed
         self.seed(seed)
-
-        # Log class parameters
-        self._log_parameters()
-
+        
         return
 
     def load(self, path):

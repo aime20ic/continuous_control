@@ -30,8 +30,11 @@ class PPO(Agent):
         self.beta = kwargs.get('beta', 0.01)
         self.sgd_epoch = kwargs.get('sgd_epoch', 4)
         self.policy = GaussianMLP(env.state_size, env.action_size, 
-            hidden=[128, 64], seed=seed).to(self.device)
+            hidden=kwargs.get('hidden', [128, 64]), seed=seed).to(self.device)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=self.lr)
+
+        # Log class parameters
+        self._log_parameters()
 
         return
 
@@ -77,7 +80,7 @@ class PPO(Agent):
         # Pass states to policy
         policy_dict = self.policy(states)
         new_probs = policy_dict['log_pi']
-        entropy = -policy_dict['entropy']
+        entropy = policy_dict['entropy']
             
         # Compute weights ratio from log probabilities (ratio = new / old)
         ratio = (new_probs - old_probs).exp()
@@ -86,7 +89,7 @@ class PPO(Agent):
         clip = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon)
         clipped_surrogate = torch.min(ratio*rewards_normalized, clip*rewards_normalized)
         
-        return torch.mean(clipped_surrogate + self.beta * entropy)
+        return torch.mean(clipped_surrogate - self.beta * entropy)
 
     def _collect_trajectories(self, tmax=200, n_rand=10):
         """
@@ -131,7 +134,7 @@ class PPO(Agent):
             probs = policy_dict['log_pi'].squeeze().cpu().detach().numpy()
 
             # Clip all actions to env action space range
-            action = np.clip(action, -1, 1)
+            # action = np.clip(action, -1, 1)
 
             # Advance game using determined actions
             _, _, reward, next_state, done = self.env.step(action)
@@ -171,14 +174,9 @@ class PPO(Agent):
         window_size = kwargs.get('window', 100)     # size for rolling window
         scores_window = deque(maxlen=window_size)   # last 100 scores
 
-        # Init logging parameters
-        run_id = kwargs.get('run_id', int(time.time()))
-        output = kwargs.get('output', Path('./output/' + str(run_id) + '/'))
-        verbose = kwargs.get('verbose', False)
-
         # Create log name
-        prefix = str(run_id) + '__' + self.name + '__' + self.env.name
-        log = output / (prefix + '__performance.log')
+        prefix = str(self.run_id) + '__' + self.name + '__' + self.env.name
+        log = self.output / (prefix + '__performance.log')
 
         # Iterate through episodes
         for episode in range(n_episodes):
@@ -225,8 +223,8 @@ class PPO(Agent):
                 
                 # Save best performing model (weights)
                 if scores_mean >= best_avg_score:
-                    output.mkdir(parents=True, exist_ok=True)
-                    torch.save(self.policy.state_dict(), output / (prefix + '__best_model.pth'))
+                    self.output.mkdir(parents=True, exist_ok=True)
+                    torch.save(self.policy.state_dict(), self.output / (prefix + '__best_model.pth'))
                     best_avg_score = scores_mean
                     best_avg_score_std = scores_std
 
@@ -252,11 +250,11 @@ class PPO(Agent):
                     break
 
         # Save final model (weights)
-        output.mkdir(parents=True, exist_ok=True)
-        torch.save(self.policy.state_dict(), output / (prefix + '__model.pth'))
+        self.output.mkdir(parents=True, exist_ok=True)
+        torch.save(self.policy.state_dict(), self.output / (prefix + '__model.pth'))
         
         # Plot training performance
-        self.plot_performance(scores, output / (prefix + '__training.png'), window_size)
+        self.plot_performance(scores, self.output / (prefix + '__training.png'), window_size)
         
         # Save evaluation parameters
         parameters = {
@@ -270,7 +268,7 @@ class PPO(Agent):
             'scores_mean': scores_mean,
             'scores_std': scores_std
         }
-        with open(output / (prefix + '__parameters.json'), 'w') as file:
+        with open(self.output / (prefix + '__parameters.json'), 'w') as file:
             json.dump(parameters, file, indent=4, sort_keys=True)
 
         return
