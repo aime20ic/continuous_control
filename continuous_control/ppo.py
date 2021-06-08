@@ -79,8 +79,8 @@ class PPO(Agent):
         new_probs = policy_dict['log_pi']
         entropy = -policy_dict['entropy']
             
-        # Compute weights ratio
-        ratio = new_probs / old_probs
+        # Compute weights ratio from log probabilities (ratio = new / old)
+        ratio = (new_probs - old_probs).exp()
             
         # clipped function
         clip = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon)
@@ -207,12 +207,11 @@ class PPO(Agent):
             # Get average reward
             total_rewards = np.sum(rewards, axis=0)
             score = np.mean(total_rewards)
-            scores.append(score)
 
             # Save most recent scores
             scores_window.append(score)
             scores.append(score)
-            
+
             # Calculate average & standard deviation of current scores
             scores_mean = np.mean(scores_window)
             scores_std = np.std(scores_window)

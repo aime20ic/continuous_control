@@ -42,7 +42,7 @@ class Agent():
         # Set agent training hyperparameters
         self.batch_size = kwargs.get('batch_size', 64)          # minibatch size
         self.gamma = kwargs.get('gamma', 0.99)                  # discount factor
-        self.lr = kwargs.get('lr', 1e-4)                        # learning rate 
+        self.lr = kwargs.get('lr', 5e-4)                        # learning rate 
         self.optimizer = None
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -174,7 +174,7 @@ class Agent():
         window_avg = []
         window_std = []
         window = deque(maxlen=window_size)
-
+        
         # Create avg score
         avg = [np.mean(scores[:i+1]) for i in range(len(scores))]
         for i in range(len(scores)):
