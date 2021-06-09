@@ -167,7 +167,7 @@ def eval_agent(agent, env, eval_type, **kwargs):
 
         # Reset environment
         score = 0
-        states = env.reset(train=True)
+        states = env.reset(train=True if eval_type == 'train' else False)
         
         # Learn for max_t steps
         for t in range(max_t):

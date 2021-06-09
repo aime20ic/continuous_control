@@ -149,7 +149,7 @@ class Agent():
         if aorc.lower() == 'actor':
             self.actor_local.load_state_dict(torch.load(path))
             self.actor_target.load_state_dict(torch.load(path))
-        elif aorc.lower() == 'crtic':
+        elif aorc.lower() == 'critic':
             self.critic_local.load_state_dict(torch.load(path))
             self.critic_target.load_state_dict(torch.load(path))
         else:
